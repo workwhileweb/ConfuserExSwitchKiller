@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 using de4dot.blocks;
 using de4dot.blocks.cflow;
@@ -18,197 +19,163 @@ namespace ConfuserExSwitchKiller
 		// Token: 0x0600214C RID: 8524 RVA: 0x0008FA29 File Offset: 0x0008EA29
 		public MainForm()
 		{
-			this.InitializeComponent();
+			InitializeComponent();
 		}
 
 		// Token: 0x06002151 RID: 8529 RVA: 0x0008FCB4 File Offset: 0x0008ECB4
 		public void AddMethods(TypeDef type)
 		{
 			if (type.HasMethods)
-			{
-				foreach (MethodDef current in type.Methods)
-				{
-					if (current.HasBody)
-					{
-						this.methods.Add(current);
-					}
-				}
-			}
-			if (type.HasNestedTypes)
-			{
-				foreach (TypeDef current2 in type.NestedTypes)
-				{
-					this.AddMethods(current2);
-				}
-			}
-		}
+                foreach (var current in type.Methods)
+                    if (current.HasBody)
+                        methods.Add(current);
+
+            if (!type.HasNestedTypes) return;
+            foreach (var current2 in type.NestedTypes) AddMethods(current2);
+        }
 
 		// Token: 0x0600214D RID: 8525 RVA: 0x0008FA60 File Offset: 0x0008EA60
 		private void Button1Click(object sender, EventArgs e)
 		{
-			this.label2.Text = "";
-			OpenFileDialog openFileDialog = new OpenFileDialog();
+			label2.Text = "";
+			var openFileDialog = new OpenFileDialog();
 			openFileDialog.Title = "Browse for target assembly";
 			openFileDialog.InitialDirectory = "c:\\";
-			if (this.DirectoryName != "")
-			{
-				openFileDialog.InitialDirectory = this.DirectoryName;
-			}
-			openFileDialog.Filter = "All files (*.exe,*.dll)|*.exe;*.dll";
+			if (DirectoryName != "") openFileDialog.InitialDirectory = DirectoryName;
+            openFileDialog.Filter = "All files (*.exe,*.dll)|*.exe;*.dll";
 			openFileDialog.FilterIndex = 2;
 			openFileDialog.RestoreDirectory = true;
-			if (openFileDialog.ShowDialog() == DialogResult.OK)
-			{
-				string fileName = openFileDialog.FileName;
-				this.textBox1.Text = fileName;
-				int num = fileName.LastIndexOf("\\");
-				if (num != -1)
-				{
-					this.DirectoryName = fileName.Remove(num, fileName.Length - num);
-				}
-				if (this.DirectoryName.Length == 2)
-				{
-					this.DirectoryName += "\\";
-				}
-			}
-		}
+            if (openFileDialog.ShowDialog() != DialogResult.OK) return;
+            var fileName = openFileDialog.FileName;
+            textBox1.Text = fileName;
+            var num = fileName.LastIndexOf("\\", StringComparison.Ordinal);
+            if (num != -1) DirectoryName = fileName.Remove(num, fileName.Length - num);
+            if (DirectoryName.Length == 2) DirectoryName += "\\";
+        }
+
+        private void InitCode()
+        {
+            
+        }
 
 		// Token: 0x06002154 RID: 8532 RVA: 0x00090DF4 File Offset: 0x0008FDF4
 		private void Button2Click(object sender, EventArgs e)
-		{
-			if (File.Exists(this.textBox1.Text))
-			{
-				string text = Path.GetDirectoryName(this.textBox1.Text);
-				if (!text.EndsWith("\\"))
-				{
-					text += "\\";
-				}
-				string filename = text + Path.GetFileNameWithoutExtension(this.textBox1.Text) + "_deobfuscated" + Path.GetExtension(this.textBox1.Text);
-				AssemblyDef assemblyDef = AssemblyDef.Load(this.textBox1.Text);
-				ModuleDef manifestModule = assemblyDef.ManifestModule;
-				if (manifestModule.IsILOnly)
-				{
-					ModuleWriterOptions moduleWriterOptions = new ModuleWriterOptions(manifestModule);
-					moduleWriterOptions.MetaDataOptions.Flags |= (MetaDataFlags.PreserveTypeRefRids | MetaDataFlags.PreserveTypeDefRids | MetaDataFlags.PreserveFieldRids | MetaDataFlags.PreserveMethodRids | MetaDataFlags.PreserveParamRids | MetaDataFlags.PreserveMemberRefRids | MetaDataFlags.PreserveStandAloneSigRids | MetaDataFlags.PreserveEventRids | MetaDataFlags.PreservePropertyRids | MetaDataFlags.PreserveTypeSpecRids | MetaDataFlags.PreserveMethodSpecRids | MetaDataFlags.PreserveUSOffsets | MetaDataFlags.PreserveBlobOffsets | MetaDataFlags.PreserveExtraSignatureData | MetaDataFlags.KeepOldMaxStack);
-					this.methods = new List<MethodDef>();
-					if (manifestModule.HasTypes)
-					{
-						foreach (TypeDef current in manifestModule.Types)
-						{
-							this.AddMethods(current);
-						}
-					}
-					BlocksCflowDeobfuscator blocksCflowDeobfuscator = new BlocksCflowDeobfuscator();
-					for (int i = 0; i < this.methods.Count; i++)
-					{
-						Blocks blocks = new Blocks(this.methods[i]);
-						blocksCflowDeobfuscator.Initialize(blocks);
-						blocksCflowDeobfuscator.Deobfuscate();
-						blocks.RepartitionBlocks();
-						IList<Instruction> list;
-						IList<ExceptionHandler> exceptionHandlers;
-						blocks.GetCode(out list, out exceptionHandlers);
-						DotNetUtils.RestoreBody(this.methods[i], list, exceptionHandlers);
-					}
-					for (int i = 0; i < this.methods.Count; i++)
-					{
-						for (int j = 0; j < this.methods[i].Body.Instructions.Count; j++)
-						{
-							if (this.methods[i].Body.Instructions[j].IsLdcI4() && j + 1 < this.methods[i].Body.Instructions.Count && this.methods[i].Body.Instructions[j + 1].OpCode == OpCodes.Pop)
-							{
-								this.methods[i].Body.Instructions[j].OpCode = OpCodes.Nop;
-								this.methods[i].Body.Instructions[j + 1].OpCode = OpCodes.Nop;
-								for (int k = 0; k < this.methods[i].Body.Instructions.Count; k++)
-								{
-									if (this.methods[i].Body.Instructions[k].OpCode == OpCodes.Br || this.methods[i].Body.Instructions[k].OpCode == OpCodes.Br_S)
-									{
-										if (this.methods[i].Body.Instructions[k].Operand is Instruction)
-										{
-											Instruction instruction = this.methods[i].Body.Instructions[k].Operand as Instruction;
-											if (instruction == this.methods[i].Body.Instructions[j + 1])
-											{
-												if (k - 1 >= 0 && this.methods[i].Body.Instructions[k - 1].IsLdcI4())
-												{
-													this.methods[i].Body.Instructions[k - 1].OpCode = OpCodes.Nop;
-												}
-											}
-										}
-									}
-								}
-							}
-							if (this.methods[i].Body.Instructions[j].OpCode == OpCodes.Dup && j + 1 < this.methods[i].Body.Instructions.Count && this.methods[i].Body.Instructions[j + 1].OpCode == OpCodes.Pop)
-							{
-								this.methods[i].Body.Instructions[j].OpCode = OpCodes.Nop;
-								this.methods[i].Body.Instructions[j + 1].OpCode = OpCodes.Nop;
-								for (int k = 0; k < this.methods[i].Body.Instructions.Count; k++)
-								{
-									if (this.methods[i].Body.Instructions[k].OpCode == OpCodes.Br || this.methods[i].Body.Instructions[k].OpCode == OpCodes.Br_S)
-									{
-										if (this.methods[i].Body.Instructions[k].Operand is Instruction)
-										{
-											Instruction instruction = this.methods[i].Body.Instructions[k].Operand as Instruction;
-											if (instruction == this.methods[i].Body.Instructions[j + 1])
-											{
-												if (k - 1 >= 0 && this.methods[i].Body.Instructions[k - 1].OpCode == OpCodes.Dup)
-												{
-													this.methods[i].Body.Instructions[k - 1].OpCode = OpCodes.Nop;
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-					for (int i = 0; i < this.methods.Count; i++)
-					{
-						Blocks blocks = new Blocks(this.methods[i]);
-						blocksCflowDeobfuscator.Initialize(blocks);
-						blocksCflowDeobfuscator.Deobfuscate();
-						blocks.RepartitionBlocks();
-						IList<Instruction> list;
-						IList<ExceptionHandler> exceptionHandlers;
-						blocks.GetCode(out list, out exceptionHandlers);
-						DotNetUtils.RestoreBody(this.methods[i], list, exceptionHandlers);
-					}
-					for (int i = 0; i < this.methods.Count; i++)
-					{
-						List<Instruction> list2 = new List<Instruction>();
-						List<Instruction> list3 = new List<Instruction>();
-						Local local = null;
-						List<int> list4 = new List<int>();
-						List<int> list5 = new List<int>();
-						for (int j = 0; j < this.methods[i].Body.Instructions.Count; j++)
-						{
-							if (j + 3 < this.methods[i].Body.Instructions.Count && this.methods[i].Body.Instructions[j].IsLdcI4())
-							{
-                                if (this.methods[i].Body.Instructions[j + 1].IsLdcI4())
-                                //if (this.methods[i].Body.Instructions[j + 1].OpCode == OpCodes.Xor)
-								{
-									//if (this.methods[i].Body.Instructions[j + 2].OpCode == OpCodes.Dup)
-                                    if (this.methods[i].Body.Instructions[j + 2].OpCode == OpCodes.Xor)
-									{
-										//if (this.methods[i].Body.Instructions[j + 3].IsStloc())
-										{
-											//if (this.methods[i].Body.Instructions[j + 4].IsLdcI4())
-											{
-												//if (this.methods[i].Body.Instructions[j + 5].OpCode == OpCodes.Rem_Un)
-												{
-                                                    //if (this.methods[i].Body.Instructions[j + 6].OpCode == OpCodes.Switch)
-                                                    if (this.methods[i].Body.Instructions[j + 3].OpCode == OpCodes.Switch)
-													{
-														list2.Add(this.methods[i].Body.Instructions[j]);
-														list4.Add(this.methods[i].Body.Instructions[j].GetLdcI4Value());
-														//local = this.methods[i].Body.Instructions[j + 3].GetLocal(this.methods[i].Body.Variables);
-														list5.Add(this.methods[i].Body.Instructions[j + 1].GetLdcI4Value());
-														list3.Add(this.methods[i].Body.Instructions[j + 3]);
-													}
-												}
-											}
-										}
-									}
-								}
-                                 /*
+        {
+            if (!File.Exists(textBox1.Text)) return;
+            var text = Path.GetDirectoryName(textBox1.Text);
+            if (text != null && !text.EndsWith("\\")) text += "\\";
+            var filename = text + Path.GetFileNameWithoutExtension(textBox1.Text) + "_deobfuscated" + Path.GetExtension(textBox1.Text);
+            var assemblyDef = AssemblyDef.Load(textBox1.Text);
+            var manifestModule = assemblyDef.ManifestModule;
+            if (!manifestModule.IsILOnly) return;
+            var moduleWriterOptions = new ModuleWriterOptions(manifestModule);
+            moduleWriterOptions.MetaDataOptions.Flags |= (MetaDataFlags.PreserveTypeRefRids | MetaDataFlags.PreserveTypeDefRids | MetaDataFlags.PreserveFieldRids | MetaDataFlags.PreserveMethodRids | MetaDataFlags.PreserveParamRids | MetaDataFlags.PreserveMemberRefRids | MetaDataFlags.PreserveStandAloneSigRids | MetaDataFlags.PreserveEventRids | MetaDataFlags.PreservePropertyRids | MetaDataFlags.PreserveTypeSpecRids | MetaDataFlags.PreserveMethodSpecRids | MetaDataFlags.PreserveUSOffsets | MetaDataFlags.PreserveBlobOffsets | MetaDataFlags.PreserveExtraSignatureData | MetaDataFlags.KeepOldMaxStack);
+            methods = new List<MethodDef>();
+            if (manifestModule.HasTypes)
+                foreach (var current in manifestModule.Types)
+                    AddMethods(current);
+            var blocksCflowDeobfuscator = new BlocksCflowDeobfuscator();
+            for (var i = 0; i < methods.Count; i++)
+            {
+                var blocks = new Blocks(methods[i]);
+                blocksCflowDeobfuscator.Initialize(blocks);
+                blocksCflowDeobfuscator.Deobfuscate();
+                blocks.RepartitionBlocks();
+                blocks.GetCode(out var list, out var exceptionHandlers);
+                DotNetUtils.RestoreBody(methods[i], list, exceptionHandlers);
+            }
+
+            for (var i = 0; i < methods.Count; i++)
+            {
+                for (var j = 0; j < methods[i].Body.Instructions.Count; j++)
+                {
+                    if (methods[i].Body.Instructions[j].IsLdcI4() &&
+                        j + 1 < methods[i].Body.Instructions.Count &&
+                        methods[i].Body.Instructions[j + 1].OpCode == OpCodes.Pop)
+                    {
+                        methods[i].Body.Instructions[j].OpCode = OpCodes.Nop;
+                        methods[i].Body.Instructions[j + 1].OpCode = OpCodes.Nop;
+                        for (var k = 0; k < methods[i].Body.Instructions.Count; k++)
+                        {
+                            if (methods[i].Body.Instructions[k].OpCode != OpCodes.Br &&
+                                methods[i].Body.Instructions[k].OpCode != OpCodes.Br_S) continue;
+                            if (!(methods[i].Body.Instructions[k].Operand is Instruction)) continue;
+                            var instruction = methods[i].Body.Instructions[k].Operand as Instruction;
+                            if (instruction != methods[i].Body.Instructions[j + 1]) continue;
+                            if (k - 1 >= 0 && methods[i].Body.Instructions[k - 1].IsLdcI4())
+                                methods[i].Body.Instructions[k - 1].OpCode = OpCodes.Nop;
+                        }
+                    }
+
+                    if (methods[i].Body.Instructions[j].OpCode != OpCodes.Dup ||
+                        j + 1 >= methods[i].Body.Instructions.Count ||
+                        methods[i].Body.Instructions[j + 1].OpCode != OpCodes.Pop) continue;
+                    
+                    methods[i].Body.Instructions[j].OpCode = OpCodes.Nop;
+                    methods[i].Body.Instructions[j + 1].OpCode = OpCodes.Nop;
+                    for (var k = 0; k < methods[i].Body.Instructions.Count; k++)
+                    {
+                        if (methods[i].Body.Instructions[k].OpCode != OpCodes.Br &&
+                            methods[i].Body.Instructions[k].OpCode != OpCodes.Br_S) continue;
+
+                        if (!(methods[i].Body.Instructions[k].Operand is Instruction)) continue;
+
+                        var instruction = methods[i].Body.Instructions[k].Operand as Instruction;
+                        if (instruction != methods[i].Body.Instructions[j + 1]) continue;
+                        if (k - 1 >= 0 && methods[i].Body.Instructions[k - 1].OpCode == OpCodes.Dup)
+                            methods[i].Body.Instructions[k - 1].OpCode = OpCodes.Nop;
+                    }
+                }
+            }
+
+            for (var i = 0; i < methods.Count; i++)
+            {
+                var blocks = new Blocks(methods[i]);
+                blocksCflowDeobfuscator.Initialize(blocks);
+                blocksCflowDeobfuscator.Deobfuscate();
+                blocks.RepartitionBlocks();
+                blocks.GetCode(out var list, out var exceptionHandlers);
+                DotNetUtils.RestoreBody(methods[i], list, exceptionHandlers);
+            }
+
+            for (var i = 0; i < methods.Count; i++)
+            {
+                var list2 = new List<Instruction>();
+                var list3 = new List<Instruction>();
+                Local local = null;
+                var list4 = new List<int>();
+                var list5 = new List<int>();
+                for (var j = 0; j < methods[i].Body.Instructions.Count; j++)
+                {
+                    if (j + 3 < methods[i].Body.Instructions.Count && methods[i].Body.Instructions[j].IsLdcI4())
+                    {
+                        if (methods[i].Body.Instructions[j + 1].IsLdcI4())
+                            //if (this.methods[i].Body.Instructions[j + 1].OpCode == OpCodes.Xor)
+                        {
+                            //if (this.methods[i].Body.Instructions[j + 2].OpCode == OpCodes.Dup)
+                            if (methods[i].Body.Instructions[j + 2].OpCode == OpCodes.Xor)
+                            {
+                                //if (this.methods[i].Body.Instructions[j + 3].IsStloc())
+                                {
+                                    //if (this.methods[i].Body.Instructions[j + 4].IsLdcI4())
+                                    {
+                                        //if (this.methods[i].Body.Instructions[j + 5].OpCode == OpCodes.Rem_Un)
+                                        {
+                                            //if (this.methods[i].Body.Instructions[j + 6].OpCode == OpCodes.Switch)
+                                            if (methods[i].Body.Instructions[j + 3].OpCode == OpCodes.Switch)
+                                            {
+                                                list2.Add(methods[i].Body.Instructions[j]);
+                                                list4.Add(methods[i].Body.Instructions[j].GetLdcI4Value());
+                                                //local = this.methods[i].Body.Instructions[j + 3].GetLocal(this.methods[i].Body.Variables);
+                                                list5.Add(methods[i].Body.Instructions[j + 1].GetLdcI4Value());
+                                                list3.Add(methods[i].Body.Instructions[j + 3]);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        /*
                                 if (this.methods[i].Body.Instructions[j + 1].OpCode == OpCodes.Xor)
                                 {
                                     if (this.methods[i].Body.Instructions[j + 2].OpCode == OpCodes.Dup)
@@ -234,264 +201,254 @@ namespace ConfuserExSwitchKiller
                                 }
                                 */
 
-							}
-						}
-						if (list2.Count > 0)
-						{
-							for (int j = 0; j < this.methods[i].Body.Instructions.Count; j++)
-							{
-								if (j + 1 < this.methods[i].Body.Instructions.Count && this.methods[i].Body.Instructions[j].IsLdcI4())
-								{
-									if (this.methods[i].Body.Instructions[j + 1].IsBr())
-									{
-										Instruction instruction = this.methods[i].Body.Instructions[j + 1].Operand as Instruction;
-										for (int k = 0; k < list2.Count; k++)
-										{
-											if (instruction == list2[k])
-											{
-												MethodDef methodDef = this.methods[i];
-												int ldcI4Value = this.methods[i].Body.Instructions[j].GetLdcI4Value();
-												uint num = (uint)(ldcI4Value ^ list4[k]);
-												uint num2 = num % (uint)list5[k];
-												this.methods[i].Body.Instructions[j].OpCode = OpCodes.Ldc_I4;
-												this.methods[i].Body.Instructions[j].Operand = (int)num;
-												this.methods[i].Body.Instructions[j + 1].Operand = OpCodes.Br;
-												Instruction[] array = list3[k].Operand as Instruction[];
-												this.methods[i].Body.Instructions[j + 1].Operand = array[(int)((UIntPtr)num2)];
-												//this.methods[i].Body.Instructions.Insert(j + 1, OpCodes.Stloc_S.ToInstruction(local));
-												j++;
-											}
-										}
-									}
-								}
-							}
-							this.methods[i].Body.SimplifyBranches();
-							this.methods[i].Body.OptimizeBranches();
-						}
-					}
-					for (int i = 0; i < this.methods.Count; i++)
-					{
-						Blocks blocks = new Blocks(this.methods[i]);
-						blocksCflowDeobfuscator.Initialize(blocks);
-						blocksCflowDeobfuscator.Deobfuscate();
-						blocks.RepartitionBlocks();
-						IList<Instruction> list;
-						IList<ExceptionHandler> exceptionHandlers;
-						blocks.GetCode(out list, out exceptionHandlers);
-						DotNetUtils.RestoreBody(this.methods[i], list, exceptionHandlers);
-					}
-					for (int i = 0; i < this.methods.Count; i++)
-					{
-						Dictionary<Instruction, Instruction> dictionary = new Dictionary<Instruction, Instruction>();
-						for (int j = 0; j < this.methods[i].Body.Instructions.Count; j++)
-						{
-							if (this.methods[i].Body.Instructions[j].IsConditionalBranch())
-							{
-								Instruction instruction2 = this.methods[i].Body.Instructions[j];
-								for (int k = 0; k < this.methods[i].Body.Instructions.Count; k++)
-								{
-									if (this.methods[i].Body.Instructions[k].IsBr())
-									{
-										Instruction instruction3 = this.methods[i].Body.Instructions[k];
-										Instruction instruction4 = this.methods[i].Body.Instructions[k].Operand as Instruction;
-										if (instruction4 == instruction2)
-										{
-											if (!dictionary.ContainsKey(instruction4))
-											{
-												this.methods[i].Body.Instructions[k].OpCode = instruction2.GetOpCode();
-												this.methods[i].Body.Instructions[k].Operand = instruction2.GetOperand();
-												this.methods[i].Body.Instructions.Insert(k + 1, OpCodes.Br.ToInstruction(this.methods[i].Body.Instructions[j + 1]));
-												k++;
-												dictionary.Add(instruction4, this.methods[i].Body.Instructions[k]);
-											}
-										}
-									}
-								}
-							}
-						}
-						this.methods[i].Body.SimplifyBranches();
-						this.methods[i].Body.OptimizeBranches();
-					}
-					for (int i = 0; i < this.methods.Count; i++)
-					{
-						Blocks blocks = new Blocks(this.methods[i]);
-						blocksCflowDeobfuscator.Initialize(blocks);
-						blocksCflowDeobfuscator.Deobfuscate();
-						blocks.RepartitionBlocks();
-						IList<Instruction> list;
-						IList<ExceptionHandler> exceptionHandlers;
-						blocks.GetCode(out list, out exceptionHandlers);
-						DotNetUtils.RestoreBody(this.methods[i], list, exceptionHandlers);
-					}
-					int num3 = 0;
-					for (int i = 0; i < this.methods.Count; i++)
-					{
-						this.toberemoved = new List<int>();
-						this.integer_values_1 = new List<int>();
-						this.for_rem = new List<int>();
-						this.switchinstructions = new List<Instruction>();
-						for (int j = 0; j < this.methods[i].Body.Instructions.Count; j++)
-						{
-							if (j + 6 < this.methods[i].Body.Instructions.Count && this.methods[i].Body.Instructions[j].IsLdcI4())
-							{
-								if (this.methods[i].Body.Instructions[j + 1].OpCode == OpCodes.Xor)
-								{
-									//if (this.methods[i].Body.Instructions[j + 2].OpCode == OpCodes.Dup)
-									{
-										//if (this.methods[i].Body.Instructions[j + 3].IsStloc())
-										{
-											//if (this.methods[i].Body.Instructions[j + 4].IsLdcI4())
-											{
-												//if (this.methods[i].Body.Instructions[j + 5].OpCode == OpCodes.Rem_Un)
-												{
-													if (this.methods[i].Body.Instructions[j + 6].OpCode == OpCodes.Switch)
-													{
-														this.toberemoved.Add(j);
-														this.integer_values_1.Add(this.methods[i].Body.Instructions[j].GetLdcI4Value());
-														this.local_variable = this.methods[i].Body.Instructions[j + 3].GetLocal(this.methods[i].Body.Variables);
-														this.for_rem.Add(this.methods[i].Body.Instructions[j + 4].GetLdcI4Value());
-														this.switchinstructions.Add(this.methods[i].Body.Instructions[j + 6]);
+                    }
+                }
+                if (list2.Count > 0)
+                {
+                    for (var j = 0; j < methods[i].Body.Instructions.Count; j++)
+                    {
+                        if (j + 1 < methods[i].Body.Instructions.Count && methods[i].Body.Instructions[j].IsLdcI4())
+                        {
+                            if (methods[i].Body.Instructions[j + 1].IsBr())
+                            {
+                                var instruction = methods[i].Body.Instructions[j + 1].Operand as Instruction;
+                                for (var k = 0; k < list2.Count; k++)
+                                {
+                                    if (instruction == list2[k])
+                                    {
+                                        var methodDef = methods[i];
+                                        var ldcI4Value = methods[i].Body.Instructions[j].GetLdcI4Value();
+                                        var num = (uint)(ldcI4Value ^ list4[k]);
+                                        var num2 = num % (uint)list5[k];
+                                        methods[i].Body.Instructions[j].OpCode = OpCodes.Ldc_I4;
+                                        methods[i].Body.Instructions[j].Operand = (int)num;
+                                        methods[i].Body.Instructions[j + 1].Operand = OpCodes.Br;
+                                        var array = list3[k].Operand as Instruction[];
+                                        methods[i].Body.Instructions[j + 1].Operand = array[(int)((UIntPtr)num2)];
+                                        //this.methods[i].Body.Instructions.Insert(j + 1, OpCodes.Stloc_S.ToInstruction(local));
+                                        j++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    methods[i].Body.SimplifyBranches();
+                    methods[i].Body.OptimizeBranches();
+                }
+            }
+            for (var i = 0; i < methods.Count; i++)
+            {
+                var blocks = new Blocks(methods[i]);
+                blocksCflowDeobfuscator.Initialize(blocks);
+                blocksCflowDeobfuscator.Deobfuscate();
+                blocks.RepartitionBlocks();
+                blocks.GetCode(out var list, out var exceptionHandlers);
+                DotNetUtils.RestoreBody(methods[i], list, exceptionHandlers);
+            }
+            for (var i = 0; i < methods.Count; i++)
+            {
+                var dictionary = new Dictionary<Instruction, Instruction>();
+                for (var j = 0; j < methods[i].Body.Instructions.Count; j++)
+                {
+                    if (methods[i].Body.Instructions[j].IsConditionalBranch())
+                    {
+                        var instruction2 = methods[i].Body.Instructions[j];
+                        for (var k = 0; k < methods[i].Body.Instructions.Count; k++)
+                        {
+                            if (methods[i].Body.Instructions[k].IsBr())
+                            {
+                                var instruction3 = methods[i].Body.Instructions[k];
+                                var instruction4 = methods[i].Body.Instructions[k].Operand as Instruction;
+                                if (instruction4 == instruction2)
+                                {
+                                    if (!dictionary.ContainsKey(instruction4))
+                                    {
+                                        methods[i].Body.Instructions[k].OpCode = instruction2.GetOpCode();
+                                        methods[i].Body.Instructions[k].Operand = instruction2.GetOperand();
+                                        methods[i].Body.Instructions.Insert(k + 1, OpCodes.Br.ToInstruction(methods[i].Body.Instructions[j + 1]));
+                                        k++;
+                                        dictionary.Add(instruction4, methods[i].Body.Instructions[k]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                methods[i].Body.SimplifyBranches();
+                methods[i].Body.OptimizeBranches();
+            }
+            for (var i = 0; i < methods.Count; i++)
+            {
+                var blocks = new Blocks(methods[i]);
+                blocksCflowDeobfuscator.Initialize(blocks);
+                blocksCflowDeobfuscator.Deobfuscate();
+                blocks.RepartitionBlocks();
+                blocks.GetCode(out var list, out var exceptionHandlers);
+                DotNetUtils.RestoreBody(methods[i], list, exceptionHandlers);
+            }
+            var num3 = 0;
+            for (var i = 0; i < methods.Count; i++)
+            {
+                toberemoved = new List<int>();
+                integer_values_1 = new List<int>();
+                for_rem = new List<int>();
+                switchinstructions = new List<Instruction>();
+                for (var j = 0; j < methods[i].Body.Instructions.Count; j++)
+                {
+                    if (j + 6 < methods[i].Body.Instructions.Count && methods[i].Body.Instructions[j].IsLdcI4())
+                    {
+                        if (methods[i].Body.Instructions[j + 1].OpCode == OpCodes.Xor)
+                        {
+                            //if (this.methods[i].Body.Instructions[j + 2].OpCode == OpCodes.Dup)
+                            {
+                                //if (this.methods[i].Body.Instructions[j + 3].IsStloc())
+                                {
+                                    //if (this.methods[i].Body.Instructions[j + 4].IsLdcI4())
+                                    {
+                                        //if (this.methods[i].Body.Instructions[j + 5].OpCode == OpCodes.Rem_Un)
+                                        {
+                                            if (methods[i].Body.Instructions[j + 6].OpCode == OpCodes.Switch)
+                                            {
+                                                toberemoved.Add(j);
+                                                integer_values_1.Add(methods[i].Body.Instructions[j].GetLdcI4Value());
+                                                local_variable = methods[i].Body.Instructions[j + 3].GetLocal(methods[i].Body.Variables);
+                                                for_rem.Add(methods[i].Body.Instructions[j + 4].GetLdcI4Value());
+                                                switchinstructions.Add(methods[i].Body.Instructions[j + 6]);
 
-                                                        //list2.Add(this.methods[i].Body.Instructions[j]);
-                                                        //list4.Add(this.methods[i].Body.Instructions[j].GetLdcI4Value());
-                                                        ////local = this.methods[i].Body.Instructions[j + 3].GetLocal(this.methods[i].Body.Variables);
-                                                        //list5.Add(this.methods[i].Body.Instructions[j + 1].GetLdcI4Value());
-                                                        //list3.Add(this.methods[i].Body.Instructions[j + 3]);
-                                                    }
-                                                }
-											}
-										}
-									}
-								}
-							}
-						}
-						if (this.switchinstructions.Count > 0)
-						{
-							this.toberemovedindex = new List<int>();
-							this.toberemovedvalues = new List<int>();
-							this.conditionalinstructions = new List<Instruction>();
-							this.brinstructions = new List<Instruction>();
-							this.realbrinstructions = new List<Instruction>();
-							this.local_values = new List<int>();
-							this.instructions = this.methods[i].Body.Instructions;
-							this.method = this.methods[i];
-							this.InstructionParse2(0, 0u);
-							num3 += this.toberemovedindex.Count;
-							if (this.toberemovedindex.Count > 0)
-							{
-								for (int l = 0; l < this.toberemoved.Count; l++)
-								{
-									for (int j = 0; j < 6; j++)
-									{
-										this.methods[i].Body.Instructions[j + this.toberemoved[l]].OpCode = OpCodes.Nop;
-										this.methods[i].Body.Instructions[j + this.toberemoved[l]].Operand = null;
-									}
-								}
-								for (int j = 0; j < this.toberemovedindex.Count; j++)
-								{
-									this.methods[i].Body.Instructions[this.toberemovedindex[j]].OpCode = OpCodes.Ldc_I4;
-									this.methods[i].Body.Instructions[this.toberemovedindex[j]].Operand = this.toberemovedvalues[j];
-									if (!this.methods[i].Body.Instructions[this.toberemovedindex[j] + 1].IsBr())
-									{
-										for (int k = 0; k < 4; k++)
-										{
-											this.methods[i].Body.Instructions[this.toberemovedindex[j] + k + 1].OpCode = OpCodes.Nop;
-											this.methods[i].Body.Instructions[this.toberemovedindex[j] + k + 1].Operand = null;
-										}
-									}
-								}
-							}
-						}
-						this.toberemoved = new List<int>();
-						this.integer_values_1 = new List<int>();
-						this.for_rem = new List<int>();
-						this.switchinstructions = new List<Instruction>();
-						for (int j = 0; j < this.methods[i].Body.Instructions.Count; j++)
-						{
-							if (j + 6 < this.methods[i].Body.Instructions.Count && this.methods[i].Body.Instructions[j].IsLdcI4())
-							{
-								if (this.methods[i].Body.Instructions[j + 1].OpCode == OpCodes.Xor)
-								{
-									if (this.methods[i].Body.Instructions[j + 2].IsLdcI4())
-									{
-										//if (this.methods[i].Body.Instructions[j + 3].OpCode == OpCodes.Rem_Un)
-										{
-											if (this.methods[i].Body.Instructions[j + 4].OpCode == OpCodes.Switch)
-											{
-												this.toberemoved.Add(j);
-												this.integer_values_1.Add(this.methods[i].Body.Instructions[j].GetLdcI4Value());
-												this.for_rem.Add(this.methods[i].Body.Instructions[j + 2].GetLdcI4Value());
-												this.switchinstructions.Add(this.methods[i].Body.Instructions[j + 4]);
-											}
-										}
-									}
-								}
-							}
-						}
-						if (this.switchinstructions.Count > 0)
-						{
-							this.toberemovedindex = new List<int>();
-							this.toberemovedvalues = new List<int>();
-							this.conditionalinstructions = new List<Instruction>();
-							this.brinstructions = new List<Instruction>();
-							this.realbrinstructions = new List<Instruction>();
-							this.instructions = this.methods[i].Body.Instructions;
-							this.method = this.methods[i];
-							this.InstructionParseNoLocal(0);
-							num3 += this.toberemovedindex.Count;
-							if (this.toberemovedindex.Count > 0)
-							{
-								for (int l = 0; l < this.toberemoved.Count; l++)
-								{
-									for (int j = 0; j < 4; j++)
-									{
-										this.methods[i].Body.Instructions[j + this.toberemoved[l]].OpCode = OpCodes.Nop;
-										this.methods[i].Body.Instructions[j + this.toberemoved[l]].Operand = null;
-									}
-								}
-								for (int j = 0; j < this.toberemovedindex.Count; j++)
-								{
-									this.methods[i].Body.Instructions[this.toberemovedindex[j]].OpCode = OpCodes.Ldc_I4;
-									this.methods[i].Body.Instructions[this.toberemovedindex[j]].Operand = this.toberemovedvalues[j];
-									if (!this.methods[i].Body.Instructions[this.toberemovedindex[j] + 1].IsBr())
-									{
-										for (int k = 0; k < 4; k++)
-										{
-											this.methods[i].Body.Instructions[this.toberemovedindex[j] + k + 1].OpCode = OpCodes.Nop;
-											this.methods[i].Body.Instructions[this.toberemovedindex[j] + k + 1].Operand = null;
-										}
-									}
-								}
-							}
-						}
-						Blocks blocks = new Blocks(this.methods[i]);
-						blocksCflowDeobfuscator.Initialize(blocks);
-						blocksCflowDeobfuscator.Deobfuscate();
-						blocks.RepartitionBlocks();
-						IList<Instruction> list;
-						IList<ExceptionHandler> exceptionHandlers;
-						blocks.GetCode(out list, out exceptionHandlers);
-						DotNetUtils.RestoreBody(this.methods[i], list, exceptionHandlers);
-						this.methods[i].Body.SimplifyBranches();
-						this.methods[i].Body.OptimizeBranches();
-					}
-					for (int i = 0; i < this.methods.Count; i++)
-					{
-						Blocks blocks = new Blocks(this.methods[i]);
-						blocksCflowDeobfuscator.Initialize(blocks);
-						blocksCflowDeobfuscator.Deobfuscate();
-						blocks.RepartitionBlocks();
-						IList<Instruction> list;
-						IList<ExceptionHandler> exceptionHandlers;
-						blocks.GetCode(out list, out exceptionHandlers);
-						DotNetUtils.RestoreBody(this.methods[i], list, exceptionHandlers);
-					}
-					moduleWriterOptions.Logger = DummyLogger.NoThrowInstance;
-					manifestModule.Write(filename, moduleWriterOptions);
-					this.label2.Text = "File deobfuscated! " + num3.ToString() + " replaces made!";
-				}
-			}
-		}
+                                                //list2.Add(this.methods[i].Body.Instructions[j]);
+                                                //list4.Add(this.methods[i].Body.Instructions[j].GetLdcI4Value());
+                                                ////local = this.methods[i].Body.Instructions[j + 3].GetLocal(this.methods[i].Body.Variables);
+                                                //list5.Add(this.methods[i].Body.Instructions[j + 1].GetLdcI4Value());
+                                                //list3.Add(this.methods[i].Body.Instructions[j + 3]);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (switchinstructions.Count > 0)
+                {
+                    toberemovedindex = new List<int>();
+                    toberemovedvalues = new List<int>();
+                    conditionalinstructions = new List<Instruction>();
+                    brinstructions = new List<Instruction>();
+                    realbrinstructions = new List<Instruction>();
+                    local_values = new List<int>();
+                    instructions = methods[i].Body.Instructions;
+                    method = methods[i];
+                    InstructionParse2(0, 0u);
+                    num3 += toberemovedindex.Count;
+                    if (toberemovedindex.Count > 0)
+                    {
+                        for (var l = 0; l < toberemoved.Count; l++)
+                        {
+                            for (var j = 0; j < 6; j++)
+                            {
+                                methods[i].Body.Instructions[j + toberemoved[l]].OpCode = OpCodes.Nop;
+                                methods[i].Body.Instructions[j + toberemoved[l]].Operand = null;
+                            }
+                        }
+                        for (var j = 0; j < toberemovedindex.Count; j++)
+                        {
+                            methods[i].Body.Instructions[toberemovedindex[j]].OpCode = OpCodes.Ldc_I4;
+                            methods[i].Body.Instructions[toberemovedindex[j]].Operand = toberemovedvalues[j];
+                            if (!methods[i].Body.Instructions[toberemovedindex[j] + 1].IsBr())
+                            {
+                                for (var k = 0; k < 4; k++)
+                                {
+                                    methods[i].Body.Instructions[toberemovedindex[j] + k + 1].OpCode = OpCodes.Nop;
+                                    methods[i].Body.Instructions[toberemovedindex[j] + k + 1].Operand = null;
+                                }
+                            }
+                        }
+                    }
+                }
+                toberemoved = new List<int>();
+                integer_values_1 = new List<int>();
+                for_rem = new List<int>();
+                switchinstructions = new List<Instruction>();
+                for (var j = 0; j < methods[i].Body.Instructions.Count; j++)
+                {
+                    if (j + 6 < methods[i].Body.Instructions.Count && methods[i].Body.Instructions[j].IsLdcI4())
+                    {
+                        if (methods[i].Body.Instructions[j + 1].OpCode == OpCodes.Xor)
+                        {
+                            if (methods[i].Body.Instructions[j + 2].IsLdcI4())
+                            {
+                                //if (this.methods[i].Body.Instructions[j + 3].OpCode == OpCodes.Rem_Un)
+                                {
+                                    if (methods[i].Body.Instructions[j + 4].OpCode == OpCodes.Switch)
+                                    {
+                                        toberemoved.Add(j);
+                                        integer_values_1.Add(methods[i].Body.Instructions[j].GetLdcI4Value());
+                                        for_rem.Add(methods[i].Body.Instructions[j + 2].GetLdcI4Value());
+                                        switchinstructions.Add(methods[i].Body.Instructions[j + 4]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (switchinstructions.Count > 0)
+                {
+                    toberemovedindex = new List<int>();
+                    toberemovedvalues = new List<int>();
+                    conditionalinstructions = new List<Instruction>();
+                    brinstructions = new List<Instruction>();
+                    realbrinstructions = new List<Instruction>();
+                    instructions = methods[i].Body.Instructions;
+                    method = methods[i];
+                    InstructionParseNoLocal(0);
+                    num3 += toberemovedindex.Count;
+                    if (toberemovedindex.Count > 0)
+                    {
+                        for (var l = 0; l < toberemoved.Count; l++)
+                        {
+                            for (var j = 0; j < 4; j++)
+                            {
+                                methods[i].Body.Instructions[j + toberemoved[l]].OpCode = OpCodes.Nop;
+                                methods[i].Body.Instructions[j + toberemoved[l]].Operand = null;
+                            }
+                        }
+                        for (var j = 0; j < toberemovedindex.Count; j++)
+                        {
+                            methods[i].Body.Instructions[toberemovedindex[j]].OpCode = OpCodes.Ldc_I4;
+                            methods[i].Body.Instructions[toberemovedindex[j]].Operand = toberemovedvalues[j];
+                            if (!methods[i].Body.Instructions[toberemovedindex[j] + 1].IsBr())
+                            {
+                                for (var k = 0; k < 4; k++)
+                                {
+                                    methods[i].Body.Instructions[toberemovedindex[j] + k + 1].OpCode = OpCodes.Nop;
+                                    methods[i].Body.Instructions[toberemovedindex[j] + k + 1].Operand = null;
+                                }
+                            }
+                        }
+                    }
+                }
+                var blocks = new Blocks(methods[i]);
+                blocksCflowDeobfuscator.Initialize(blocks);
+                blocksCflowDeobfuscator.Deobfuscate();
+                blocks.RepartitionBlocks();
+                blocks.GetCode(out var list, out var exceptionHandlers);
+                DotNetUtils.RestoreBody(methods[i], list, exceptionHandlers);
+                methods[i].Body.SimplifyBranches();
+                methods[i].Body.OptimizeBranches();
+            }
+            for (var i = 0; i < methods.Count; i++)
+            {
+                var blocks = new Blocks(methods[i]);
+                blocksCflowDeobfuscator.Initialize(blocks);
+                blocksCflowDeobfuscator.Deobfuscate();
+                blocks.RepartitionBlocks();
+                blocks.GetCode(out var list, out var exceptionHandlers);
+                DotNetUtils.RestoreBody(methods[i], list, exceptionHandlers);
+            }
+            moduleWriterOptions.Logger = DummyLogger.NoThrowInstance;
+            manifestModule.Write(filename, moduleWriterOptions);
+            label2.Text = "File deobfuscated! " + num3.ToString() + " replaces made!";
+        }
 
 		// Token: 0x06002150 RID: 8528 RVA: 0x0008FCAB File Offset: 0x0008ECAB
 		private void Button3Click(object sender, EventArgs e)
@@ -504,9 +461,9 @@ namespace ConfuserExSwitchKiller
 		{
 			if (disposing)
 			{
-				if (this.components != null)
+				if (components != null)
 				{
-					this.components.Dispose();
+					components.Dispose();
 				}
 			}
 			base.Dispose(disposing);
@@ -515,170 +472,213 @@ namespace ConfuserExSwitchKiller
 		// Token: 0x06002156 RID: 8534 RVA: 0x00092AD4 File Offset: 0x00091AD4
 		private void InitializeComponent()
 		{
-			this.button3 = new Button();
-			this.button2 = new Button();
-			this.button1 = new Button();
-			this.label2 = new Label();
-			this.label1 = new Label();
-			this.textBox1 = new TextBox();
-			base.SuspendLayout();
-			this.button3.Location = new Point(393, 96);
-			this.button3.Name = "button3";
-			this.button3.Size = new Size(72, 26);
-			this.button3.TabIndex = 29;
-			this.button3.Text = "Exit";
-			this.button3.UseVisualStyleBackColor = true;
-			this.button3.Click += new EventHandler(this.Button3Click);
-			this.button2.Location = new Point(224, 96);
-			this.button2.Name = "button2";
-			this.button2.Size = new Size(90, 26);
-			this.button2.TabIndex = 28;
-			this.button2.Text = "Deobfuscate";
-			this.button2.UseVisualStyleBackColor = true;
-			this.button2.Click += new EventHandler(this.Button2Click);
-			this.button1.Location = new Point(46, 96);
-			this.button1.Name = "button1";
-			this.button1.Size = new Size(123, 26);
-			this.button1.TabIndex = 27;
-			this.button1.Text = "Browse for assembly";
-			this.button1.UseVisualStyleBackColor = true;
-			this.button1.Click += new EventHandler(this.Button1Click);
-			this.label2.ForeColor = Color.Blue;
-			this.label2.Location = new Point(112, 71);
-			this.label2.Name = "label2";
-			this.label2.Size = new Size(293, 22);
-			this.label2.TabIndex = 26;
-			this.label2.Text = "Current status";
-			this.label1.BackColor = Color.Transparent;
-			this.label1.ForeColor = Color.Black;
-			this.label1.Location = new Point(46, 31);
-			this.label1.Name = "label1";
-			this.label1.Size = new Size(100, 14);
-			this.label1.TabIndex = 25;
-			this.label1.Text = "Name of assembly:";
-			this.textBox1.AllowDrop = true;
-			this.textBox1.Location = new Point(46, 48);
-			this.textBox1.Name = "textBox1";
-			this.textBox1.Size = new Size(419, 20);
-			this.textBox1.TabIndex = 24;
-			this.textBox1.DragDrop += new DragEventHandler(this.TextBox1DragDrop);
-			this.textBox1.DragEnter += new DragEventHandler(this.TextBox1DragEnter);
-			base.AutoScaleDimensions = new SizeF(6f, 13f);
-			base.AutoScaleMode = AutoScaleMode.Font;
-			base.ClientSize = new Size(511, 152);
-			base.Controls.Add(this.button3);
-			base.Controls.Add(this.button2);
-			base.Controls.Add(this.button1);
-			base.Controls.Add(this.label2);
-			base.Controls.Add(this.label1);
-			base.Controls.Add(this.textBox1);
-			base.Name = "MainForm";
-			this.Text = "ConfuserEx 5.0 Switch Killer 1.0 by CodeCracker";
-			base.ResumeLayout(false);
-			base.PerformLayout();
+            this.button3 = new System.Windows.Forms.Button();
+            this.button2 = new System.Windows.Forms.Button();
+            this.button1 = new System.Windows.Forms.Button();
+            this.label2 = new System.Windows.Forms.Label();
+            this.label1 = new System.Windows.Forms.Label();
+            this.textBox1 = new System.Windows.Forms.TextBox();
+            this.button4 = new System.Windows.Forms.Button();
+            this.SuspendLayout();
+            // 
+            // button3
+            // 
+            this.button3.Location = new System.Drawing.Point(786, 185);
+            this.button3.Margin = new System.Windows.Forms.Padding(6);
+            this.button3.Name = "button3";
+            this.button3.Size = new System.Drawing.Size(144, 50);
+            this.button3.TabIndex = 29;
+            this.button3.Text = "Exit";
+            this.button3.UseVisualStyleBackColor = true;
+            this.button3.Click += new System.EventHandler(this.Button3Click);
+            // 
+            // button2
+            // 
+            this.button2.Location = new System.Drawing.Point(350, 185);
+            this.button2.Margin = new System.Windows.Forms.Padding(6);
+            this.button2.Name = "button2";
+            this.button2.Size = new System.Drawing.Size(180, 50);
+            this.button2.TabIndex = 28;
+            this.button2.Text = "Deobfuscate";
+            this.button2.UseVisualStyleBackColor = true;
+            this.button2.Click += new System.EventHandler(this.Button2Click);
+            // 
+            // button1
+            // 
+            this.button1.Location = new System.Drawing.Point(92, 185);
+            this.button1.Margin = new System.Windows.Forms.Padding(6);
+            this.button1.Name = "button1";
+            this.button1.Size = new System.Drawing.Size(246, 50);
+            this.button1.TabIndex = 27;
+            this.button1.Text = "Browse for assembly";
+            this.button1.UseVisualStyleBackColor = true;
+            this.button1.Click += new System.EventHandler(this.Button1Click);
+            // 
+            // label2
+            // 
+            this.label2.ForeColor = System.Drawing.Color.Blue;
+            this.label2.Location = new System.Drawing.Point(224, 137);
+            this.label2.Margin = new System.Windows.Forms.Padding(6, 0, 6, 0);
+            this.label2.Name = "label2";
+            this.label2.Size = new System.Drawing.Size(586, 42);
+            this.label2.TabIndex = 26;
+            this.label2.Text = "Current status";
+            // 
+            // label1
+            // 
+            this.label1.BackColor = System.Drawing.Color.Transparent;
+            this.label1.ForeColor = System.Drawing.Color.Black;
+            this.label1.Location = new System.Drawing.Point(92, 60);
+            this.label1.Margin = new System.Windows.Forms.Padding(6, 0, 6, 0);
+            this.label1.Name = "label1";
+            this.label1.Size = new System.Drawing.Size(200, 27);
+            this.label1.TabIndex = 25;
+            this.label1.Text = "Name of assembly:";
+            // 
+            // textBox1
+            // 
+            this.textBox1.AllowDrop = true;
+            this.textBox1.Location = new System.Drawing.Point(92, 92);
+            this.textBox1.Margin = new System.Windows.Forms.Padding(6);
+            this.textBox1.Name = "textBox1";
+            this.textBox1.Size = new System.Drawing.Size(834, 31);
+            this.textBox1.TabIndex = 24;
+            this.textBox1.Text = "D:\\wWw\\.dev\\MiChangerA1\\Services.dll";
+            this.textBox1.DragDrop += new System.Windows.Forms.DragEventHandler(this.TextBox1DragDrop);
+            this.textBox1.DragEnter += new System.Windows.Forms.DragEventHandler(this.TextBox1DragEnter);
+            // 
+            // button4
+            // 
+            this.button4.Location = new System.Drawing.Point(542, 185);
+            this.button4.Margin = new System.Windows.Forms.Padding(6);
+            this.button4.Name = "button4";
+            this.button4.Size = new System.Drawing.Size(180, 50);
+            this.button4.TabIndex = 30;
+            this.button4.Text = "Deobfuscate1";
+            this.button4.UseVisualStyleBackColor = true;
+            this.button4.Click += new System.EventHandler(this.button4_Click);
+            // 
+            // MainForm
+            // 
+            this.AutoScaleDimensions = new System.Drawing.SizeF(12F, 25F);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.ClientSize = new System.Drawing.Size(1022, 292);
+            this.Controls.Add(this.button4);
+            this.Controls.Add(this.button3);
+            this.Controls.Add(this.button2);
+            this.Controls.Add(this.button1);
+            this.Controls.Add(this.label2);
+            this.Controls.Add(this.label1);
+            this.Controls.Add(this.textBox1);
+            this.Margin = new System.Windows.Forms.Padding(6);
+            this.Name = "MainForm";
+            this.Text = "ConfuserEx 5.0 Switch Killer 1.0 by CodeCracker";
+            this.ResumeLayout(false);
+            this.PerformLayout();
+
 		}
 
 		// Token: 0x06002152 RID: 8530 RVA: 0x0008FD90 File Offset: 0x0008ED90
 		public void InstructionParse2(int ins_index, uint local_value)
 		{
-			for (int i = ins_index; i < this.instructions.Count; i++)
+			for (var i = ins_index; i < instructions.Count; i++)
 			{
-				Instruction instruction = this.instructions[i];
-				MethodDef methodDef = this.method;
+				var instruction = instructions[i];
+				var methodDef = method;
 				string text = methodDef.Name;
-				string fullName = methodDef.DeclaringType.FullName;
-				if (!this.toberemovedindex.Contains(i))
+				var fullName = methodDef.DeclaringType.FullName;
+				if (!toberemovedindex.Contains(i))
 				{
-					if (this.instructions[i].IsBr())
+					if (instructions[i].IsBr())
 					{
-						Instruction item = this.instructions[i].Operand as Instruction;
-						if (!this.brinstructions.Contains(item) && !this.realbrinstructions.Contains(item))
+						var item = instructions[i].Operand as Instruction;
+						if (!brinstructions.Contains(item) && !realbrinstructions.Contains(item))
 						{
-							this.realbrinstructions.Add(item);
-							int ins_index2 = this.instructions.IndexOf(item);
-							this.InstructionParse2(ins_index2, local_value);
+							realbrinstructions.Add(item);
+							var ins_index2 = instructions.IndexOf(item);
+							InstructionParse2(ins_index2, local_value);
 						}
 						break;
 					}
-					if (this.instructions[i].IsConditionalBranch() || this.instructions[i].IsLeave())
+					if (instructions[i].IsConditionalBranch() || instructions[i].IsLeave())
 					{
-						Instruction item = this.instructions[i].Operand as Instruction;
-						if (!this.conditionalinstructions.Contains(item))
+						var item = instructions[i].Operand as Instruction;
+						if (!conditionalinstructions.Contains(item))
 						{
-							this.conditionalinstructions.Add(item);
-							int ins_index3 = this.instructions.IndexOf(item);
-							this.InstructionParse2(ins_index3, local_value);
-							if (i + 1 < this.instructions.Count)
+							conditionalinstructions.Add(item);
+							var ins_index3 = instructions.IndexOf(item);
+							InstructionParse2(ins_index3, local_value);
+							if (i + 1 < instructions.Count)
 							{
-								int ins_index4 = i + 1;
-								this.InstructionParse2(ins_index4, local_value);
+								var ins_index4 = i + 1;
+								InstructionParse2(ins_index4, local_value);
 							}
 						}
 					}
 					else
 					{
-						if (this.instructions[i].OpCode == OpCodes.Ret)
+						if (instructions[i].OpCode == OpCodes.Ret)
 						{
 							break;
 						}
-						if (this.instructions[i].IsLdcI4() && i + 1 < this.instructions.Count && this.instructions[i + 1].IsStloc() && this.instructions[i + 1].GetLocal(this.method.Body.Variables) == this.local_variable)
+						if (instructions[i].IsLdcI4() && i + 1 < instructions.Count && instructions[i + 1].IsStloc() && instructions[i + 1].GetLocal(method.Body.Variables) == local_variable)
 						{
-							local_value = (uint)this.instructions[i].GetLdcI4Value();
+							local_value = (uint)instructions[i].GetLdcI4Value();
 						}
-						else if (this.instructions[i].IsLdcI4() || (this.instructions[i].IsLdloc() && this.instructions[i].GetLocal(this.method.Body.Variables) == this.local_variable))
+						else if (instructions[i].IsLdcI4() || (instructions[i].IsLdloc() && instructions[i].GetLocal(method.Body.Variables) == local_variable))
 						{
 							uint num;
-							if (this.instructions[i].IsLdcI4())
+							if (instructions[i].IsLdcI4())
 							{
-								num = (uint)this.instructions[i].GetLdcI4Value();
+								num = (uint)instructions[i].GetLdcI4Value();
 							}
 							else
 							{
 								num = local_value;
 							}
-							int num2 = i + 1;
-							if (this.instructions[i + 1].IsBr())
+							var num2 = i + 1;
+							if (instructions[i + 1].IsBr())
 							{
-								Instruction item2 = this.instructions[i + 1].Operand as Instruction;
-								num2 = this.instructions.IndexOf(item2);
+								var item2 = instructions[i + 1].Operand as Instruction;
+								num2 = instructions.IndexOf(item2);
 							}
-							if (this.instructions[num2].IsLdcI4() || (this.instructions[num2].IsLdloc() && this.instructions[num2].GetLocal(this.method.Body.Variables) == this.local_variable))
+							if (instructions[num2].IsLdcI4() || (instructions[num2].IsLdloc() && instructions[num2].GetLocal(method.Body.Variables) == local_variable))
 							{
 								uint num3;
-								if (this.instructions[num2].IsLdcI4())
+								if (instructions[num2].IsLdcI4())
 								{
-									num3 = (uint)this.instructions[num2].GetLdcI4Value();
+									num3 = (uint)instructions[num2].GetLdcI4Value();
 								}
 								else
 								{
 									num3 = local_value;
 								}
-								uint num4 = 0u;
-								if ((this.instructions[num2 + 1].OpCode == OpCodes.Mul && this.instructions[num2 + 2].IsLdcI4()) || (this.instructions[num2 + 1].IsLdcI4() && this.instructions[num2 + 2].OpCode == OpCodes.Mul) || this.instructions[num2 + 1].OpCode == OpCodes.Xor)
+								var num4 = 0u;
+								if ((instructions[num2 + 1].OpCode == OpCodes.Mul && instructions[num2 + 2].IsLdcI4()) || (instructions[num2 + 1].IsLdcI4() && instructions[num2 + 2].OpCode == OpCodes.Mul) || instructions[num2 + 1].OpCode == OpCodes.Xor)
 								{
-									if (this.instructions[num2 + 1].OpCode != OpCodes.Xor)
+									if (instructions[num2 + 1].OpCode != OpCodes.Xor)
 									{
-										if (this.instructions[num2 + 1].OpCode == OpCodes.Mul && this.instructions[num2 + 2].IsLdcI4())
+										if (instructions[num2 + 1].OpCode == OpCodes.Mul && instructions[num2 + 2].IsLdcI4())
 										{
-											num4 = (uint)this.instructions[num2 + 2].GetLdcI4Value();
+											num4 = (uint)instructions[num2 + 2].GetLdcI4Value();
 										}
-										if (this.instructions[num2 + 1].IsLdcI4() && this.instructions[num2 + 2].OpCode == OpCodes.Mul)
+										if (instructions[num2 + 1].IsLdcI4() && instructions[num2 + 2].OpCode == OpCodes.Mul)
 										{
-											num4 = (uint)this.instructions[num2 + 1].GetLdcI4Value();
+											num4 = (uint)instructions[num2 + 1].GetLdcI4Value();
 										}
 									}
-									if (this.instructions[num2 + 3].OpCode == OpCodes.Xor || this.instructions[num2 + 1].OpCode == OpCodes.Xor)
+									if (instructions[num2 + 3].OpCode == OpCodes.Xor || instructions[num2 + 1].OpCode == OpCodes.Xor)
 									{
-										for (int j = 0; j < this.toberemoved.Count; j++)
+										for (var j = 0; j < toberemoved.Count; j++)
 										{
-											if ((this.instructions[num2 + 4].IsBr() && this.instructions[num2 + 4].Operand as Instruction == this.instructions[this.toberemoved[j]]) || num2 + 4 == this.toberemoved[j] || (this.instructions[num2 + 1].OpCode == OpCodes.Xor && num2 == this.toberemoved[j]))
+											if ((instructions[num2 + 4].IsBr() && instructions[num2 + 4].Operand as Instruction == instructions[toberemoved[j]]) || num2 + 4 == toberemoved[j] || (instructions[num2 + 1].OpCode == OpCodes.Xor && num2 == toberemoved[j]))
 											{
 												uint num5;
-												if (this.instructions[num2 + 1].OpCode == OpCodes.Xor)
+												if (instructions[num2 + 1].OpCode == OpCodes.Xor)
 												{
 													num5 = (num ^ num3);
 												}
-												else if (this.instructions[num2 + 1].IsLdcI4() || this.instructions[num2 + 1].IsLdloc())
+												else if (instructions[num2 + 1].IsLdcI4() || instructions[num2 + 1].IsLdloc())
 												{
 													num5 = (num4 * num3 ^ num);
 												}
@@ -686,27 +686,27 @@ namespace ConfuserExSwitchKiller
 												{
 													num5 = (num * num3 ^ num4);
 												}
-												if (this.instructions[num2 + 1].OpCode != OpCodes.Xor)
+												if (instructions[num2 + 1].OpCode != OpCodes.Xor)
 												{
-													local_value = (num5 ^ (uint)this.integer_values_1[j]);
+													local_value = (num5 ^ (uint)integer_values_1[j]);
 												}
 												else
 												{
 													local_value = num5;
 												}
-												uint num6 = local_value % (uint)this.for_rem[j];
-												Instruction[] array = this.switchinstructions[j].Operand as Instruction[];
-												Instruction item3 = array[(int)((UIntPtr)num6)];
-												if (this.toberemovedindex.Contains(i))
+												var num6 = local_value % (uint)for_rem[j];
+												var array = switchinstructions[j].Operand as Instruction[];
+												var item3 = array[(int)((UIntPtr)num6)];
+												if (toberemovedindex.Contains(i))
 												{
 												}
-												this.toberemovedindex.Add(i);
-												this.toberemovedvalues.Add((int)num6);
-												bool flag = false;
-												int num7 = this.brinstructions.IndexOf(item3);
+												toberemovedindex.Add(i);
+												toberemovedvalues.Add((int)num6);
+												var flag = false;
+												var num7 = brinstructions.IndexOf(item3);
 												if (num7 != -1)
 												{
-													int num8 = this.local_values[num7];
+													var num8 = local_values[num7];
 													if ((long)num8 != (long)((ulong)local_value))
 													{
 														flag = true;
@@ -718,9 +718,9 @@ namespace ConfuserExSwitchKiller
 												}
 												if (flag)
 												{
-													this.brinstructions.Add(item3);
-													this.local_values.Add((int)local_value);
-													this.InstructionParse2(this.instructions.IndexOf(item3), local_value);
+													brinstructions.Add(item3);
+													local_values.Add((int)local_value);
+													InstructionParse2(instructions.IndexOf(item3), local_value);
 													break;
 												}
 											}
@@ -729,7 +729,7 @@ namespace ConfuserExSwitchKiller
 								}
 							}
 						}
-						else if (this.instructions[i].OpCode == OpCodes.Switch)
+						else if (instructions[i].OpCode == OpCodes.Switch)
 						{
 							bool flag2;
 							if (i - 4 < 0)
@@ -739,10 +739,10 @@ namespace ConfuserExSwitchKiller
 							else
 							{
 								flag2 = false;
-								for (int j = 0; j < this.toberemoved.Count; j++)
+								for (var j = 0; j < toberemoved.Count; j++)
 								{
-									int num9 = this.toberemoved[j];
-									if (i - 6 == this.toberemoved[j])
+									var num9 = toberemoved[j];
+									if (i - 6 == toberemoved[j])
 									{
 										flag2 = true;
 										break;
@@ -751,11 +751,11 @@ namespace ConfuserExSwitchKiller
 							}
 							if (!flag2)
 							{
-								Instruction[] array2 = this.instructions[i].Operand as Instruction[];
-								for (int j = 0; j < array2.Length; j++)
+								var array2 = instructions[i].Operand as Instruction[];
+								for (var j = 0; j < array2.Length; j++)
 								{
-									Instruction item4 = array2[j];
-									this.InstructionParse2(this.instructions.IndexOf(item4), local_value);
+									var item4 = array2[j];
+									InstructionParse2(instructions.IndexOf(item4), local_value);
 								}
 							}
 						}
@@ -767,90 +767,90 @@ namespace ConfuserExSwitchKiller
 		// Token: 0x06002153 RID: 8531 RVA: 0x0009067C File Offset: 0x0008F67C
 		public void InstructionParseNoLocal(int ins_index)
 		{
-			for (int i = ins_index; i < this.instructions.Count; i++)
+			for (var i = ins_index; i < instructions.Count; i++)
 			{
-				Instruction instruction = this.instructions[i];
-				MethodDef methodDef = this.method;
-				if (!this.toberemovedindex.Contains(i))
+				var instruction = instructions[i];
+				var methodDef = method;
+				if (!toberemovedindex.Contains(i))
 				{
-					if (this.instructions[i].IsBr())
+					if (instructions[i].IsBr())
 					{
-						Instruction item = this.instructions[i].Operand as Instruction;
-						if (!this.brinstructions.Contains(item) && !this.realbrinstructions.Contains(item))
+						var item = instructions[i].Operand as Instruction;
+						if (!brinstructions.Contains(item) && !realbrinstructions.Contains(item))
 						{
-							this.realbrinstructions.Add(item);
-							int ins_index2 = this.instructions.IndexOf(item);
-							this.InstructionParseNoLocal(ins_index2);
+							realbrinstructions.Add(item);
+							var ins_index2 = instructions.IndexOf(item);
+							InstructionParseNoLocal(ins_index2);
 						}
 						break;
 					}
-					if (this.instructions[i].IsConditionalBranch() || this.instructions[i].IsLeave())
+					if (instructions[i].IsConditionalBranch() || instructions[i].IsLeave())
 					{
-						Instruction item = this.instructions[i].Operand as Instruction;
-						if (!this.conditionalinstructions.Contains(item))
+						var item = instructions[i].Operand as Instruction;
+						if (!conditionalinstructions.Contains(item))
 						{
-							this.conditionalinstructions.Add(item);
-							int ins_index3 = this.instructions.IndexOf(item);
-							this.InstructionParseNoLocal(ins_index3);
-							if (i + 1 < this.instructions.Count)
+							conditionalinstructions.Add(item);
+							var ins_index3 = instructions.IndexOf(item);
+							InstructionParseNoLocal(ins_index3);
+							if (i + 1 < instructions.Count)
 							{
-								int ins_index4 = i + 1;
-								this.InstructionParseNoLocal(ins_index4);
+								var ins_index4 = i + 1;
+								InstructionParseNoLocal(ins_index4);
 							}
 						}
 					}
 					else
 					{
-						if (this.instructions[i].OpCode == OpCodes.Ret)
+						if (instructions[i].OpCode == OpCodes.Ret)
 						{
 							break;
 						}
-						if (this.instructions[i].IsLdcI4())
+						if (instructions[i].IsLdcI4())
 						{
-							uint num = 0u;
-							if (this.instructions[i].IsLdcI4())
+							var num = 0u;
+							if (instructions[i].IsLdcI4())
 							{
-								num = (uint)this.instructions[i].GetLdcI4Value();
+								num = (uint)instructions[i].GetLdcI4Value();
 							}
-							int num2 = i + 1;
-							if (this.instructions[i + 1].IsBr())
+							var num2 = i + 1;
+							if (instructions[i + 1].IsBr())
 							{
-								Instruction item2 = this.instructions[i + 1].Operand as Instruction;
-								num2 = this.instructions.IndexOf(item2);
+								var item2 = instructions[i + 1].Operand as Instruction;
+								num2 = instructions.IndexOf(item2);
 							}
-							if (this.instructions[num2].IsLdcI4())
+							if (instructions[num2].IsLdcI4())
 							{
-								uint num3 = 0u;
-								if (this.instructions[num2].IsLdcI4())
+								var num3 = 0u;
+								if (instructions[num2].IsLdcI4())
 								{
-									num3 = (uint)this.instructions[num2].GetLdcI4Value();
+									num3 = (uint)instructions[num2].GetLdcI4Value();
 								}
-								uint num4 = 0u;
-								if ((this.instructions[num2 + 1].OpCode == OpCodes.Mul && this.instructions[num2 + 2].IsLdcI4()) || (this.instructions[num2 + 1].IsLdcI4() && this.instructions[num2 + 2].OpCode == OpCodes.Mul) || this.instructions[num2 + 1].OpCode == OpCodes.Xor)
+								var num4 = 0u;
+								if ((instructions[num2 + 1].OpCode == OpCodes.Mul && instructions[num2 + 2].IsLdcI4()) || (instructions[num2 + 1].IsLdcI4() && instructions[num2 + 2].OpCode == OpCodes.Mul) || instructions[num2 + 1].OpCode == OpCodes.Xor)
 								{
-									if (this.instructions[num2 + 1].OpCode != OpCodes.Xor)
+									if (instructions[num2 + 1].OpCode != OpCodes.Xor)
 									{
-										if (this.instructions[num2 + 1].OpCode == OpCodes.Mul && this.instructions[num2 + 2].IsLdcI4())
+										if (instructions[num2 + 1].OpCode == OpCodes.Mul && instructions[num2 + 2].IsLdcI4())
 										{
-											num4 = (uint)this.instructions[num2 + 2].GetLdcI4Value();
+											num4 = (uint)instructions[num2 + 2].GetLdcI4Value();
 										}
-										if (this.instructions[num2 + 1].IsLdcI4() && this.instructions[num2 + 2].OpCode == OpCodes.Mul)
+										if (instructions[num2 + 1].IsLdcI4() && instructions[num2 + 2].OpCode == OpCodes.Mul)
 										{
-											num4 = (uint)this.instructions[num2 + 1].GetLdcI4Value();
+											num4 = (uint)instructions[num2 + 1].GetLdcI4Value();
 										}
 									}
-									if (this.instructions[num2 + 3].OpCode == OpCodes.Xor || this.instructions[num2 + 1].OpCode == OpCodes.Xor)
+									if (instructions[num2 + 3].OpCode == OpCodes.Xor || instructions[num2 + 1].OpCode == OpCodes.Xor)
 									{
-										for (int j = 0; j < this.toberemoved.Count; j++)
+										for (var j = 0; j < toberemoved.Count; j++)
 										{
-											if ((this.instructions[num2 + 4].IsBr() && this.instructions[num2 + 4].Operand as Instruction == this.instructions[this.toberemoved[j]]) || num2 + 4 == this.toberemoved[j] || (this.instructions[num2 + 1].OpCode == OpCodes.Xor && num2 == this.toberemoved[j]))
+											if ((instructions[num2 + 4].IsBr() && instructions[num2 + 4].Operand as Instruction == instructions[toberemoved[j]]) || num2 + 4 == toberemoved[j] || (instructions[num2 + 1].OpCode == OpCodes.Xor && num2 == toberemoved[j]))
 											{
 												uint num5;
-												if (this.instructions[num2 + 1].OpCode == OpCodes.Xor)
+												if (instructions[num2 + 1].OpCode == OpCodes.Xor)
 												{
 													num5 = (num ^ num3);
 												}
-												else if (this.instructions[num2 + 1].IsLdcI4() || this.instructions[num2 + 1].IsLdloc())
+												else if (instructions[num2 + 1].IsLdcI4() || instructions[num2 + 1].IsLdloc())
 												{
 													num5 = (num4 * num3 ^ num);
 												}
@@ -859,31 +859,31 @@ namespace ConfuserExSwitchKiller
 													num5 = (num * num3 ^ num4);
 												}
 												uint num6;
-												if (this.instructions[num2 + 1].OpCode != OpCodes.Xor)
+												if (instructions[num2 + 1].OpCode != OpCodes.Xor)
 												{
-													num6 = (num5 ^ (uint)this.integer_values_1[j]);
+													num6 = (num5 ^ (uint)integer_values_1[j]);
 												}
 												else
 												{
 													num6 = num5;
 												}
-												uint num7 = num6 % (uint)this.for_rem[j];
-												Instruction[] array = this.switchinstructions[j].Operand as Instruction[];
-												Instruction item3 = array[(int)((UIntPtr)num7)];
-												if (this.toberemovedindex.Contains(i))
+												var num7 = num6 % (uint)for_rem[j];
+												var array = switchinstructions[j].Operand as Instruction[];
+												var item3 = array[(int)((UIntPtr)num7)];
+												if (toberemovedindex.Contains(i))
 												{
 												}
-												this.toberemovedindex.Add(i);
-												this.toberemovedvalues.Add((int)num7);
-												bool flag = false;
-												if (this.brinstructions.IndexOf(item3) != -1)
+												toberemovedindex.Add(i);
+												toberemovedvalues.Add((int)num7);
+												var flag = false;
+												if (brinstructions.IndexOf(item3) != -1)
 												{
 													flag = true;
 												}
 												if (flag)
 												{
-													this.brinstructions.Add(item3);
-													this.InstructionParseNoLocal(this.instructions.IndexOf(item3));
+													brinstructions.Add(item3);
+													InstructionParseNoLocal(instructions.IndexOf(item3));
 													break;
 												}
 											}
@@ -892,7 +892,7 @@ namespace ConfuserExSwitchKiller
 								}
 							}
 						}
-						else if (this.instructions[i].OpCode == OpCodes.Switch)
+						else if (instructions[i].OpCode == OpCodes.Switch)
 						{
 							bool flag2;
 							if (i - 4 < 0)
@@ -902,10 +902,10 @@ namespace ConfuserExSwitchKiller
 							else
 							{
 								flag2 = false;
-								for (int j = 0; j < this.toberemoved.Count; j++)
+								for (var j = 0; j < toberemoved.Count; j++)
 								{
-									int num8 = this.toberemoved[j];
-									if (i - 4 == this.toberemoved[j])
+									var num8 = toberemoved[j];
+									if (i - 4 == toberemoved[j])
 									{
 										flag2 = true;
 										break;
@@ -914,11 +914,11 @@ namespace ConfuserExSwitchKiller
 							}
 							if (!flag2)
 							{
-								Instruction[] array2 = this.instructions[i].Operand as Instruction[];
-								for (int j = 0; j < array2.Length; j++)
+								var array2 = instructions[i].Operand as Instruction[];
+								for (var j = 0; j < array2.Length; j++)
 								{
-									Instruction item4 = array2[j];
-									this.InstructionParseNoLocal(this.instructions.IndexOf(item4));
+									var item4 = array2[j];
+									InstructionParseNoLocal(instructions.IndexOf(item4));
 								}
 							}
 						}
@@ -932,27 +932,27 @@ namespace ConfuserExSwitchKiller
 		{
 			try
 			{
-				Array array = (Array)e.Data.GetData(DataFormats.FileDrop);
+				var array = (Array)e.Data.GetData(DataFormats.FileDrop);
 				if (array != null)
 				{
-					string text = array.GetValue(0).ToString();
-					int num = text.LastIndexOf(".");
+					var text = array.GetValue(0).ToString();
+					var num = text.LastIndexOf(".");
 					if (num != -1)
 					{
-						string text2 = text.Substring(num);
+						var text2 = text.Substring(num);
 						text2 = text2.ToLower();
 						if (text2 == ".exe" || text2 == ".dll")
 						{
-							base.Activate();
-							this.textBox1.Text = text;
-							int num2 = text.LastIndexOf("\\");
+							Activate();
+							textBox1.Text = text;
+							var num2 = text.LastIndexOf("\\");
 							if (num2 != -1)
 							{
-								this.DirectoryName = text.Remove(num2, text.Length - num2);
+								DirectoryName = text.Remove(num2, text.Length - num2);
 							}
-							if (this.DirectoryName.Length == 2)
+							if (DirectoryName.Length == 2)
 							{
-								this.DirectoryName += "\\";
+								DirectoryName += "\\";
 							}
 						}
 					}
@@ -965,16 +965,9 @@ namespace ConfuserExSwitchKiller
 
 		// Token: 0x0600214F RID: 8527 RVA: 0x0008FC74 File Offset: 0x0008EC74
 		private void TextBox1DragEnter(object sender, DragEventArgs e)
-		{
-			if (e.Data.GetDataPresent(DataFormats.FileDrop))
-			{
-				e.Effect = DragDropEffects.Copy;
-			}
-			else
-			{
-				e.Effect = DragDropEffects.None;
-			}
-		}
+        {
+            e.Effect = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        }
 
 		// Token: 0x04000E84 RID: 3716
 		private List<Instruction> brinstructions;
@@ -1038,8 +1031,39 @@ namespace ConfuserExSwitchKiller
 
 		// Token: 0x04000E80 RID: 3712
 		private List<int> toberemovedindex;
+        private Button button4;
 
-		// Token: 0x04000E81 RID: 3713
-		private List<int> toberemovedvalues;
-	}
+        // Token: 0x04000E81 RID: 3713
+        private List<int> toberemovedvalues;
+
+        private void button4_Click(object sender, EventArgs e)
+        {
+            if (!File.Exists(textBox1.Text)) return;
+            var text = Path.GetDirectoryName(textBox1.Text);
+            if (text != null && !text.EndsWith("\\")) text += "\\";
+            var filename = text + Path.GetFileNameWithoutExtension(textBox1.Text) + "_deobfuscated" + Path.GetExtension(textBox1.Text);
+            var assemblyDef = AssemblyDef.Load(textBox1.Text);
+            var manifestModule = assemblyDef.ManifestModule;
+            if (!manifestModule.IsILOnly) return;
+            var moduleWriterOptions = new ModuleWriterOptions(manifestModule);
+            moduleWriterOptions.MetaDataOptions.Flags |= (MetaDataFlags.PreserveTypeRefRids | MetaDataFlags.PreserveTypeDefRids | MetaDataFlags.PreserveFieldRids | MetaDataFlags.PreserveMethodRids | MetaDataFlags.PreserveParamRids | MetaDataFlags.PreserveMemberRefRids | MetaDataFlags.PreserveStandAloneSigRids | MetaDataFlags.PreserveEventRids | MetaDataFlags.PreservePropertyRids | MetaDataFlags.PreserveTypeSpecRids | MetaDataFlags.PreserveMethodSpecRids | MetaDataFlags.PreserveUSOffsets | MetaDataFlags.PreserveBlobOffsets | MetaDataFlags.PreserveExtraSignatureData | MetaDataFlags.KeepOldMaxStack);
+            methods = new List<MethodDef>();
+            if (manifestModule.HasTypes)
+                foreach (var current in manifestModule.Types)
+                    AddMethods(current);
+
+            var method = methods.First(m => m.Body.Instructions.Any(i => i.IsLdcI4() && i.GetLdcI4Value() == 348848128));
+            var methodBlock = new Blocks(method);
+            var methodBlocks = methodBlock.MethodBlocks.GetAllBlocks();
+            var swBlock  =  methodBlocks.First(block => block.Instructions.Last().OpCode == OpCodes.Switch);
+
+            var switchFallThroughs = methodBlocks.FindAll(b => b.FallThrough == swBlock); // blocks that fallthrough to the switch block
+            InstructionEmulator _instructionEmulator = new InstructionEmulator();
+            _instructionEmulator.Initialize(methodBlock, true); //TODO: Remove temporary precaution
+
+            var targets = swBlock.Targets;
+            _instructionEmulator.Emulate(swBlock.Instructions, 0, swBlock.Instructions.Count-1);
+            var val = _instructionEmulator.Peek();
+        }
+    }
 }
